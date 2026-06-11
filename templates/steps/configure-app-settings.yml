@@ -1,0 +1,47 @@
+# Configure App Settings Steps
+# Sets Azure App Service application settings as Key Vault references.
+# The app reads these via standard IConfiguration — it never sees raw secrets.
+#
+# Key Vault reference syntax:
+#   @Microsoft.KeyVault(VaultName=kv-myapp-dev;SecretName=mySecret)
+#
+# The App Service managed identity needs Key Vault Secrets User role
+# on the vault (granted by the key-vault Bicep module).
+
+parameters:
+  - name: azureSubscription
+    type: string
+  - name: appServiceName
+    type: string
+  - name: resourceGroup
+    type: string
+  - name: keyVaultName
+    type: string
+  - name: environment
+    type: string
+
+steps:
+  - task: AzureCLI@2
+    displayName: 'Configure app settings (Key Vault references)'
+    inputs:
+      azureSubscription: ${{ parameters.azureSubscription }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        KV="${{ parameters.keyVaultName }}"
+
+        # Key Vault reference helper
+        kvref() { echo "@Microsoft.KeyVault(VaultName=${KV};SecretName=${1})"; }
+
+        echo "##[section]Wiring Key Vault references for ${{ parameters.appServiceName }}"
+
+        az webapp config appsettings set \
+          --name "${{ parameters.appServiceName }}" \
+          --resource-group "${{ parameters.resourceGroup }}" \
+          --settings \
+            "ConnectionStrings__Default=$(kvref sqlConnectionString)" \
+            "ApplicationInsights__ConnectionString=$(kvref appInsightsConnectionString)" \
+            "ASPNETCORE_ENVIRONMENT=${{ parameters.environment }}" \
+          --output none
+
+        echo "App settings configured. Secrets remain in Key Vault."

@@ -1,0 +1,52 @@
+# OPA Policy Check Steps
+# Installs Conftest, compiles Bicep to ARM JSON, then evaluates
+# all .rego policies in the policy directory.
+# Used in the ComplianceValidation stage of compliance-base.yml.
+
+parameters:
+  - name: azureSubscription
+    type: string
+    default: 'sc-nonprod'
+  - name: policyDir
+    type: string
+    default: templates/guardrails/policies
+  - name: bicepFile
+    type: string
+    default: infra/environments/dev/main.bicep
+
+steps:
+  - checkout: self
+
+  - task: AzureCLI@2
+    displayName: 'Install Conftest'
+    inputs:
+      azureSubscription: ${{ parameters.azureSubscription }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        CONFTEST_VERSION="0.55.0"
+        curl -sL \
+          "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+          | tar -xz -C /usr/local/bin conftest
+        conftest --version
+
+  - task: AzureCLI@2
+    displayName: 'Compile Bicep to ARM JSON'
+    inputs:
+      azureSubscription: ${{ parameters.azureSubscription }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        az bicep install
+        az bicep build \
+          --file "${{ parameters.bicepFile }}" \
+          --outfile /tmp/compiled-arm.json
+        echo "Bicep compiled to /tmp/compiled-arm.json"
+
+  - script: |
+      echo "##[section]Running OPA compliance policies"
+      conftest test /tmp/compiled-arm.json \
+        --policy "${{ parameters.policyDir }}" \
+        --output table \
+        --all-namespaces
+    displayName: 'Run OPA compliance policies'

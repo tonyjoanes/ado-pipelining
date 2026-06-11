@@ -1,0 +1,41 @@
+# Deploy Bicep Step
+# Applies the Bicep root stack to the target resource group.
+# Uses incremental mode — existing resources not in the template are untouched.
+
+parameters:
+  - name: azureSubscription
+    type: string
+  - name: bicepFile
+    type: string
+  - name: resourceGroup
+    type: string
+  - name: appName
+    type: string
+  - name: environment
+    type: string
+
+steps:
+  - task: AzureCLI@2
+    displayName: 'Deploy Bicep to ${{ parameters.environment }}'
+    inputs:
+      azureSubscription: ${{ parameters.azureSubscription }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        DEPLOYMENT_NAME="deploy-${{ parameters.appName }}-${{ parameters.environment }}-$(Build.BuildId)"
+
+        echo "##[section]Deploying: ${{ parameters.bicepFile }}"
+        echo "Resource group: ${{ parameters.resourceGroup }}"
+        echo "Deployment name: $DEPLOYMENT_NAME"
+
+        az deployment group create \
+          --resource-group "${{ parameters.resourceGroup }}" \
+          --template-file "${{ parameters.bicepFile }}" \
+          --parameters \
+            appName="${{ parameters.appName }}" \
+            buildId="$(Build.BuildId)" \
+          --name "$DEPLOYMENT_NAME" \
+          --mode Incremental \
+          --output table
+
+        echo "##[section]Infrastructure deployment complete"

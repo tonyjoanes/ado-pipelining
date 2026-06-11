@@ -1,0 +1,51 @@
+# Build .NET Job
+# Restores, builds, tests, and publishes the application artifact.
+
+parameters:
+  - name: appName
+    type: string
+  - name: dotnetVersion
+    type: string
+    default: '8.0.x'
+  - name: buildConfiguration
+    type: string
+    default: Release
+  - name: artifactName
+    type: string
+    default: drop
+  - name: projectPath
+    type: string
+    default: 'src/**/*.sln'
+  - name: testProjects
+    type: string
+    default: 'src/**/*.Tests.csproj'
+  - name: publishProject
+    type: string
+    default: 'src/**/*.Api.csproj'
+  - name: dependsOn
+    type: object
+    default: []
+
+jobs:
+  - job: BuildDotNet
+    displayName: 'Build & Test ${{ parameters.appName }}'
+    dependsOn: ${{ parameters.dependsOn }}
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - template: ../steps/restore-and-build.yml
+        parameters:
+          dotnetVersion: ${{ parameters.dotnetVersion }}
+          buildConfiguration: ${{ parameters.buildConfiguration }}
+          projectPath: ${{ parameters.projectPath }}
+
+      - template: ../steps/run-unit-tests.yml
+        parameters:
+          buildConfiguration: ${{ parameters.buildConfiguration }}
+          testProjects: ${{ parameters.testProjects }}
+
+      - template: ../steps/publish-artifact.yml
+        parameters:
+          buildConfiguration: ${{ parameters.buildConfiguration }}
+          artifactName: ${{ parameters.artifactName }}
+          publishProject: ${{ parameters.publishProject }}

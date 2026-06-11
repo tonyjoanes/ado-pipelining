@@ -1,0 +1,91 @@
+# ============================================================
+# TIER 3 — INNOVATION PIPELINE
+# ============================================================
+# For platform and innovation teams that need full control
+# over their pipeline and infrastructure.
+#
+# RULES:
+#   1. You MUST extend compliance-base.yml (enforced by ADO
+#      "Required template" project setting — cannot be removed)
+#   2. Inject custom stages ONLY via preDeployStages and
+#      postDeployStages parameters
+#   3. Bicep must use modules from infra/modules/ only
+#      (enforced at runtime by OPA/Conftest in ComplianceValidation)
+#   4. You may bring your own infra root stack but it must
+#      live under infra/environments/{env}/
+#
+# What the compliance base provides (cannot be removed):
+#   - Security scan job in the build stage
+#   - Infrastructure + app + smoke test for all 5 environments
+#   - Approval gates on UAT, staging, live (via ADO Environments)
+#   - ComplianceValidation stage (OPA policy checks)
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+
+extends:
+  template: ../../templates/guardrails/compliance-base.yml
+  parameters:
+    appName: 'fraud-detection-service'
+    azureSubscription: sc-prod
+    dotnetVersion: '8.0.x'
+
+    # ── Custom stages that run BEFORE environment deployments ─────────────
+    # Useful for: contract testing, specialised builds, data pipeline setup
+    preDeployStages:
+      - stage: ContractTests
+        displayName: 'Consumer-Driven Contract Tests'
+        dependsOn: [Build]
+        jobs:
+          - job: PactTests
+            displayName: 'Run Pact contract tests'
+            pool:
+              vmImage: ubuntu-latest
+            steps:
+              - checkout: self
+              - task: UseDotNet@2
+                inputs:
+                  version: '8.0.x'
+              - script: |
+                  dotnet test src/FraudDetectionService.ContractTests/ \
+                    --configuration Release \
+                    --logger trx
+                displayName: 'Run Pact consumer tests'
+
+      - stage: SecurityPenTest
+        displayName: 'DAST — OWASP ZAP Scan'
+        dependsOn: [AppDeploy_test]
+        jobs:
+          - job: ZapScan
+            displayName: 'OWASP ZAP baseline scan'
+            pool:
+              vmImage: ubuntu-latest
+            steps:
+              - script: |
+                  docker run -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+                    -t "https://app-fraud-detection-service-test.azurewebsites.net" \
+                    -I
+                displayName: 'ZAP baseline scan against test'
+
+    # ── Custom stages that run AFTER all environment deployments ──────────
+    # Useful for: performance tests, chaos engineering, notifications
+    postDeployStages:
+      - stage: PerformanceTests
+        displayName: 'k6 Load Test (Live)'
+        dependsOn: [SmokeTest_live]
+        jobs:
+          - job: K6Load
+            displayName: 'k6 load test'
+            pool:
+              vmImage: ubuntu-latest
+            steps:
+              - checkout: self
+              - script: |
+                  curl -L https://github.com/grafana/k6/releases/download/v0.50.0/k6-v0.50.0-linux-amd64.tar.gz | tar xz
+                  ./k6-v0.50.0-linux-amd64/k6 run \
+                    --vus 50 --duration 5m \
+                    tests/performance/load-test.js
+                displayName: 'Run k6 load test'

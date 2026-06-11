@@ -1,0 +1,40 @@
+# Test Environment Variables
+# Same shape as dev — identical SKUs.
+# Test is for automated integration/regression tests, not user-facing.
+
+variables:
+  - name: environmentName
+    value: test
+
+  - name: appServiceName
+    value: app-$(appName)-test
+
+  - name: appServicePlanName
+    value: asp-$(appName)-test
+
+  - name: keyVaultName
+    value: kv-$(appName)-test
+
+  - name: sqlServerName
+    value: sql-$(appName)-test
+
+  - name: appInsightsName
+    value: appi-$(appName)-test
+
+  - name: logWorkspaceName
+    value: log-$(appName)-test
+
+  - name: resourceGroup
+    value: rg-$(appName)-test
+
+  - name: appServiceSku
+    value: B1
+
+  - name: sqlDatabaseSku
+    value: Basic
+
+  - name: location
+    value: uksouth
+
+  - name: logRetentionDays
+    value: 30

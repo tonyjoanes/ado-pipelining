@@ -1,0 +1,175 @@
+# ============================================================
+# TIER 1 — GOLDEN PATH PIPELINE
+# ============================================================
+# Copy this file to your repository as azure-pipelines.yml.
+# Change the four parameters below. Everything else is managed
+# by the platform team — no further changes needed.
+#
+# This pipeline will:
+#   1. Build and test your .NET application
+#   2. Run a security vulnerability scan
+#   3. Deploy infrastructure (Bicep) to each environment
+#   4. Deploy your application to each environment
+#   5. Verify each deployment with a smoke test
+#   6. Require approval before UAT, Staging, and Live
+#
+# Promotion order: dev → test → uat → staging → live
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    exclude:
+      - '**/*.md'
+
+parameters:
+  - name: appName
+    displayName: Application name (kebab-case, e.g. my-api)
+    type: string
+    default: 'my-api'
+
+  - name: azureSubscription
+    displayName: ADO service connection name
+    type: string
+    default: 'sc-nonprod'
+
+  - name: dotnetVersion
+    displayName: .NET SDK version
+    type: string
+    default: '8.0.x'
+
+  - name: runIntegrationTests
+    displayName: Run integration tests in build stage
+    type: boolean
+    default: false
+
+variables:
+  - name: appName
+    value: ${{ parameters.appName }}
+  - name: buildConfiguration
+    value: Release
+  - name: artifactName
+    value: drop
+
+stages:
+
+  # ── Build ──────────────────────────────────────────────────────────────────
+  - template: ../../templates/stages/build-stage.yml
+    parameters:
+      appName: ${{ parameters.appName }}
+      dotnetVersion: ${{ parameters.dotnetVersion }}
+      buildConfiguration: $(buildConfiguration)
+      artifactName: $(artifactName)
+      runSecurityScan: true
+
+  # ── Dev ───────────────────────────────────────────────────────────────────
+  - template: ../../templates/stages/infra-deploy-stage.yml
+    parameters:
+      environment: dev
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      dependsOn: [Build]
+
+  - template: ../../templates/stages/app-deploy-stage.yml
+    parameters:
+      environment: dev
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      artifactName: $(artifactName)
+      dependsOn: [InfraDeploy_dev]
+
+  - template: ../../templates/stages/smoke-test-stage.yml
+    parameters:
+      environment: dev
+      appName: ${{ parameters.appName }}
+      dependsOn: [AppDeploy_dev]
+
+  # ── Test ──────────────────────────────────────────────────────────────────
+  - template: ../../templates/stages/infra-deploy-stage.yml
+    parameters:
+      environment: test
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      dependsOn: [SmokeTest_dev]
+
+  - template: ../../templates/stages/app-deploy-stage.yml
+    parameters:
+      environment: test
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      artifactName: $(artifactName)
+      dependsOn: [InfraDeploy_test]
+
+  - template: ../../templates/stages/smoke-test-stage.yml
+    parameters:
+      environment: test
+      appName: ${{ parameters.appName }}
+      dependsOn: [AppDeploy_test]
+
+  # ── UAT  (approval gate configured on ADO Environment) ────────────────────
+  - template: ../../templates/stages/infra-deploy-stage.yml
+    parameters:
+      environment: uat
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      dependsOn: [SmokeTest_test]
+
+  - template: ../../templates/stages/app-deploy-stage.yml
+    parameters:
+      environment: uat
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      artifactName: $(artifactName)
+      dependsOn: [InfraDeploy_uat]
+
+  - template: ../../templates/stages/smoke-test-stage.yml
+    parameters:
+      environment: uat
+      appName: ${{ parameters.appName }}
+      dependsOn: [AppDeploy_uat]
+
+  # ── Staging  (approval gate configured on ADO Environment) ────────────────
+  - template: ../../templates/stages/infra-deploy-stage.yml
+    parameters:
+      environment: staging
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      dependsOn: [SmokeTest_uat]
+
+  - template: ../../templates/stages/app-deploy-stage.yml
+    parameters:
+      environment: staging
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      artifactName: $(artifactName)
+      dependsOn: [InfraDeploy_staging]
+
+  - template: ../../templates/stages/smoke-test-stage.yml
+    parameters:
+      environment: staging
+      appName: ${{ parameters.appName }}
+      dependsOn: [AppDeploy_staging]
+
+  # ── Live  (approval gate configured on ADO Environment) ───────────────────
+  - template: ../../templates/stages/infra-deploy-stage.yml
+    parameters:
+      environment: live
+      appName: ${{ parameters.appName }}
+      azureSubscription: sc-prod
+      dependsOn: [SmokeTest_staging]
+
+  - template: ../../templates/stages/app-deploy-stage.yml
+    parameters:
+      environment: live
+      appName: ${{ parameters.appName }}
+      azureSubscription: sc-prod
+      artifactName: $(artifactName)
+      dependsOn: [InfraDeploy_live]
+
+  - template: ../../templates/stages/smoke-test-stage.yml
+    parameters:
+      environment: live
+      appName: ${{ parameters.appName }}
+      dependsOn: [AppDeploy_live]

@@ -1,0 +1,32 @@
+# Infrastructure Deploy Stage
+# Runs az deployment group what-if (preview), then applies the
+# Bicep root stack for the target environment.
+# ADO Environment approval gates are configured in ADO UI — not here.
+
+parameters:
+  - name: environment
+    type: string
+  - name: appName
+    type: string
+  - name: azureSubscription
+    type: string
+  - name: dependsOn
+    type: object
+    default: []
+  - name: bicepEnvironmentPath
+    type: string
+    default: infra/environments
+
+stages:
+  - stage: InfraDeploy_${{ parameters.environment }}
+    displayName: 'Deploy Infrastructure [${{ upper(parameters.environment) }}]'
+    dependsOn: ${{ parameters.dependsOn }}
+    variables:
+      - template: ../variables/${{ parameters.environment }}.yml
+    jobs:
+      - template: ../jobs/deploy-bicep.yml
+        parameters:
+          environment: ${{ parameters.environment }}
+          appName: ${{ parameters.appName }}
+          azureSubscription: ${{ parameters.azureSubscription }}
+          bicepEnvironmentPath: ${{ parameters.bicepEnvironmentPath }}

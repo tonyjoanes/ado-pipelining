@@ -1,0 +1,31 @@
+# Build outputs
+bin/
+obj/
+out/
+
+# .NET
+*.user
+*.suo
+.vs/
+*.nupkg
+*.snupkg
+TestResults/
+coverage/
+
+# Bicep ARM cache
+.bicep/
+
+# Azure CLI auth cache (not documentation)
+.azure/accessTokens.json
+.azure/credentials
+.azure/clouds.config
+
+# Environment files
+.env
+*.env.local
+
+# IDE
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

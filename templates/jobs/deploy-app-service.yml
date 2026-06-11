@@ -1,0 +1,45 @@
+# Deploy App Service Job
+# Downloads the build artifact, deploys via zip deploy,
+# then wires up Key Vault references as app settings.
+
+parameters:
+  - name: environment
+    type: string
+  - name: appName
+    type: string
+  - name: azureSubscription
+    type: string
+  - name: artifactName
+    type: string
+    default: drop
+
+jobs:
+  - deployment: DeployApp_${{ parameters.environment }}
+    displayName: 'Deploy to App Service'
+    environment: ${{ parameters.appName }}-${{ parameters.environment }}
+    pool:
+      vmImage: ubuntu-latest
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - template: ../steps/download-artifact.yml
+              parameters:
+                artifactName: ${{ parameters.artifactName }}
+
+            - task: AzureWebApp@1
+              displayName: 'Zip deploy to $(appServiceName)'
+              inputs:
+                azureSubscription: ${{ parameters.azureSubscription }}
+                appType: webApp
+                appName: $(appServiceName)
+                package: '$(Pipeline.Workspace)/${{ parameters.artifactName }}/**/*.zip'
+                deploymentMethod: zipDeploy
+
+            - template: ../steps/configure-app-settings.yml
+              parameters:
+                azureSubscription: ${{ parameters.azureSubscription }}
+                appServiceName: $(appServiceName)
+                resourceGroup: rg-$(appName)-${{ parameters.environment }}
+                keyVaultName: $(keyVaultName)
+                environment: ${{ parameters.environment }}

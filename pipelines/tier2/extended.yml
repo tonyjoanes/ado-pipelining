@@ -1,0 +1,251 @@
+# ============================================================
+# TIER 2 — EXTENDED PIPELINE
+# ============================================================
+# Use this when your service needs customisation beyond the
+# golden path: database migrations, custom build steps (code
+# generation, OpenAPI clients), extended integration tests,
+# or environment-specific variable overrides.
+#
+# How to customise:
+#   - Add steps inside preDeploySteps / postDeploySteps
+#   - Override individual stage templates (replace the template
+#     reference with your own, keep the same parameter shape)
+#   - Override variable values by redeclaring them after the
+#     variable template include
+#
+# This example shows a service with:
+#   1. OpenAPI client generation before build
+#   2. EF Core database migration after app deploy
+#   3. Extended smoke test (additional endpoints checked)
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    exclude:
+      - '**/*.md'
+
+parameters:
+  - name: appName
+    type: string
+    default: 'payment-api'
+
+  - name: azureSubscription
+    type: string
+    default: 'sc-nonprod'
+
+  - name: dotnetVersion
+    type: string
+    default: '8.0.x'
+
+  - name: runIntegrationTests
+    type: boolean
+    default: true
+
+  # Tier 2: teams can pass extra test projects (e.g. integration tests)
+  - name: integrationTestProjects
+    type: string
+    default: 'src/**/*.IntegrationTests.csproj'
+
+variables:
+  - name: appName
+    value: ${{ parameters.appName }}
+  - name: buildConfiguration
+    value: Release
+  - name: artifactName
+    value: drop
+
+stages:
+
+  # ── Build — with pre-build code generation step ───────────────────────────
+  - stage: Build
+    displayName: 'Build ${{ parameters.appName }}'
+    jobs:
+      # Tier 2: inject custom pre-build step (OpenAPI client generation)
+      - job: GenerateApiClients
+        displayName: 'Generate OpenAPI clients'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - task: UseDotNet@2
+            inputs:
+              version: ${{ parameters.dotnetVersion }}
+          - script: |
+              # Example: generate typed C# client from upstream API contract
+              dotnet tool install --global Microsoft.dotnet-openapi 2>/dev/null || true
+              echo "Generating API clients from upstream contracts..."
+              # dotnet openapi add url https://upstream-api/swagger/v1/swagger.json
+            displayName: 'Generate API clients'
+
+      # Standard build job from platform templates
+      - template: ../../templates/jobs/build-dotnet.yml
+        parameters:
+          appName: ${{ parameters.appName }}
+          dotnetVersion: ${{ parameters.dotnetVersion }}
+          buildConfiguration: $(buildConfiguration)
+          artifactName: $(artifactName)
+          dependsOn: [GenerateApiClients]
+
+      - ${{ if eq(parameters.runIntegrationTests, true) }}:
+        - template: ../../templates/jobs/build-dotnet.yml
+          parameters:
+            appName: '${{ parameters.appName }}-integration'
+            dotnetVersion: ${{ parameters.dotnetVersion }}
+            buildConfiguration: $(buildConfiguration)
+            artifactName: '$(artifactName)-integration'
+            testProjects: ${{ parameters.integrationTestProjects }}
+            dependsOn: [GenerateApiClients]
+
+      - template: ../../templates/jobs/security-scan.yml
+        parameters:
+          appName: ${{ parameters.appName }}
+          dotnetVersion: ${{ parameters.dotnetVersion }}
+
+  # ── Dev ───────────────────────────────────────────────────────────────────
+  - template: ../../templates/stages/infra-deploy-stage.yml
+    parameters:
+      environment: dev
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      dependsOn: [Build]
+
+  - stage: AppDeploy_dev
+    displayName: 'Deploy Application [DEV]'
+    dependsOn: [InfraDeploy_dev]
+    variables:
+      - template: ../../templates/variables/dev.yml
+    jobs:
+      - template: ../../templates/jobs/deploy-app-service.yml
+        parameters:
+          environment: dev
+          appName: ${{ parameters.appName }}
+          azureSubscription: ${{ parameters.azureSubscription }}
+          artifactName: $(artifactName)
+
+      # Tier 2: run EF Core migrations after deploy
+      - job: RunMigrations_dev
+        displayName: 'Run database migrations'
+        dependsOn: [DeployApp_dev]
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - task: UseDotNet@2
+            inputs:
+              version: ${{ parameters.dotnetVersion }}
+          - task: AzureCLI@2
+            displayName: 'Apply EF Core migrations'
+            inputs:
+              azureSubscription: ${{ parameters.azureSubscription }}
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                CONNECTION_STRING=$(az keyvault secret show \
+                  --vault-name "kv-$(appName)-dev" \
+                  --name sqlConnectionString \
+                  --query value -o tsv)
+
+                dotnet ef database update \
+                  --project src/${{ parameters.appName }}/${{ parameters.appName }}.csproj \
+                  --connection "$CONNECTION_STRING"
+
+  - template: ../../templates/stages/smoke-test-stage.yml
+    parameters:
+      environment: dev
+      appName: ${{ parameters.appName }}
+      dependsOn: [AppDeploy_dev]
+      # Tier 2: add extra endpoints to check beyond /health
+      additionalPaths:
+        - /api/health/ready
+        - /api/version
+
+  # ── Test, UAT, Staging, Live ───────────────────────────────────────────────
+  # These follow the same pattern as dev above.
+  # For brevity only test is shown; replicate for uat/staging/live.
+
+  - template: ../../templates/stages/infra-deploy-stage.yml
+    parameters:
+      environment: test
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      dependsOn: [SmokeTest_dev]
+
+  - template: ../../templates/stages/app-deploy-stage.yml
+    parameters:
+      environment: test
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      artifactName: $(artifactName)
+      dependsOn: [InfraDeploy_test]
+
+  - template: ../../templates/stages/smoke-test-stage.yml
+    parameters:
+      environment: test
+      appName: ${{ parameters.appName }}
+      dependsOn: [AppDeploy_test]
+
+  - template: ../../templates/stages/infra-deploy-stage.yml
+    parameters:
+      environment: uat
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      dependsOn: [SmokeTest_test]
+
+  - template: ../../templates/stages/app-deploy-stage.yml
+    parameters:
+      environment: uat
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      artifactName: $(artifactName)
+      dependsOn: [InfraDeploy_uat]
+
+  - template: ../../templates/stages/smoke-test-stage.yml
+    parameters:
+      environment: uat
+      appName: ${{ parameters.appName }}
+      dependsOn: [AppDeploy_uat]
+
+  - template: ../../templates/stages/infra-deploy-stage.yml
+    parameters:
+      environment: staging
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      dependsOn: [SmokeTest_uat]
+
+  - template: ../../templates/stages/app-deploy-stage.yml
+    parameters:
+      environment: staging
+      appName: ${{ parameters.appName }}
+      azureSubscription: ${{ parameters.azureSubscription }}
+      artifactName: $(artifactName)
+      dependsOn: [InfraDeploy_staging]
+
+  - template: ../../templates/stages/smoke-test-stage.yml
+    parameters:
+      environment: staging
+      appName: ${{ parameters.appName }}
+      dependsOn: [AppDeploy_staging]
+
+  - template: ../../templates/stages/infra-deploy-stage.yml
+    parameters:
+      environment: live
+      appName: ${{ parameters.appName }}
+      azureSubscription: sc-prod
+      dependsOn: [SmokeTest_staging]
+
+  - template: ../../templates/stages/app-deploy-stage.yml
+    parameters:
+      environment: live
+      appName: ${{ parameters.appName }}
+      azureSubscription: sc-prod
+      artifactName: $(artifactName)
+      dependsOn: [InfraDeploy_live]
+
+  - template: ../../templates/stages/smoke-test-stage.yml
+    parameters:
+      environment: live
+      appName: ${{ parameters.appName }}
+      dependsOn: [AppDeploy_live]

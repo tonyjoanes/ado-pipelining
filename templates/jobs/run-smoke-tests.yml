@@ -1,0 +1,58 @@
+# Smoke Tests Job
+# Verifies /health returns HTTP 200 with status=Healthy.
+# Optionally checks additional paths.
+# Retries to accommodate App Service warm-up time.
+
+parameters:
+  - name: environment
+    type: string
+  - name: appName
+    type: string
+  - name: additionalPaths
+    type: object
+    default: []
+
+jobs:
+  - job: SmokeTest
+    displayName: 'Verify health endpoint'
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - script: |
+          APP_URL="https://app-$(appName)-${{ parameters.environment }}.azurewebsites.net"
+          echo "##[section]Smoke testing: $APP_URL"
+
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            RESPONSE=$(curl -sf "$APP_URL/health" 2>/dev/null) && break
+            echo "Attempt $i/$MAX_RETRIES failed, retrying in 15s..."
+            sleep 15
+          done
+
+          if [ -z "$RESPONSE" ]; then
+            echo "##[error]Health check failed after $MAX_RETRIES attempts"
+            exit 1
+          fi
+
+          echo "$RESPONSE"
+          STATUS=$(echo "$RESPONSE" | jq -r '.status')
+
+          if [ "$STATUS" != "Healthy" ]; then
+            echo "##[error]Expected status=Healthy, got: $STATUS"
+            exit 1
+          fi
+
+          echo "##[section]Health check passed [${{ parameters.environment }}]"
+        displayName: 'Check /health endpoint'
+
+      - ${{ each path in parameters.additionalPaths }}:
+        - script: |
+            APP_URL="https://app-$(appName)-${{ parameters.environment }}.azurewebsites.net"
+            echo "##[section]Checking: $APP_URL${{ path }}"
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$APP_URL${{ path }}")
+            if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 400 ]; then
+              echo "##[error]${{ path }} returned HTTP $HTTP_CODE"
+              exit 1
+            fi
+            echo "HTTP $HTTP_CODE — OK"
+          displayName: 'Check ${{ path }}'

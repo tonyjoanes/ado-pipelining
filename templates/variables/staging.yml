@@ -1,0 +1,40 @@
+# Staging Environment Variables
+# Mirror of live configuration — staging is the final gate before live.
+# Approval gate configured on ADO Environment: {appName}-staging
+
+variables:
+  - name: environmentName
+    value: staging
+
+  - name: appServiceName
+    value: app-$(appName)-staging
+
+  - name: appServicePlanName
+    value: asp-$(appName)-staging
+
+  - name: keyVaultName
+    value: kv-$(appName)-staging
+
+  - name: sqlServerName
+    value: sql-$(appName)-staging
+
+  - name: appInsightsName
+    value: appi-$(appName)-staging
+
+  - name: logWorkspaceName
+    value: log-$(appName)-staging
+
+  - name: resourceGroup
+    value: rg-$(appName)-staging
+
+  - name: appServiceSku
+    value: P1v3
+
+  - name: sqlDatabaseSku
+    value: S2
+
+  - name: location
+    value: uksouth
+
+  - name: logRetentionDays
+    value: 30

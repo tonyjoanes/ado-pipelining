@@ -1,0 +1,60 @@
+# Security Scan Job
+# Audits NuGet packages for known CVEs and checks for secrets in code.
+# Mandatory in Tier 1 (always enabled) and Tier 3 (enforced by OPA policy).
+# Tier 2 teams can opt in by including this job template.
+
+parameters:
+  - name: appName
+    type: string
+  - name: dotnetVersion
+    type: string
+    default: '8.0.x'
+  - name: failOnVulnerabilities
+    type: boolean
+    default: false    # Warn by default; set true in live-bound pipelines
+
+jobs:
+  - job: SecurityScan
+    displayName: 'Security & Vulnerability Scan'
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - checkout: self
+
+      - task: UseDotNet@2
+        displayName: 'Use .NET ${{ parameters.dotnetVersion }}'
+        inputs:
+          version: ${{ parameters.dotnetVersion }}
+          includePreviewVersions: false
+
+      - script: |
+          echo "##[section]Auditing NuGet packages for known CVEs..."
+          dotnet list src/ package --vulnerable --include-transitive 2>&1 | tee /tmp/vuln-report.txt
+
+          VULN_COUNT=$(grep -c "has the following vulnerable packages" /tmp/vuln-report.txt || true)
+
+          if [ "$VULN_COUNT" -gt 0 ]; then
+            echo "##[warning]$VULN_COUNT vulnerable package(s) found — review report above"
+            ${{ if eq(parameters.failOnVulnerabilities, true) }}:
+            exit 1
+          else
+            echo "No vulnerable packages found"
+          fi
+        displayName: 'NuGet vulnerability audit'
+
+      # Microsoft Security DevOps scans for secrets, code issues, and dependencies.
+      # Requires the 'Microsoft Security DevOps' extension installed in your ADO org.
+      # Extension: https://marketplace.visualstudio.com/items?itemName=ms-securitydevops.microsoft-security-devops-azdevops
+      - task: MicrosoftSecurityDevOps@1
+        displayName: 'Microsoft Security DevOps (secrets + SAST)'
+        inputs:
+          categories: 'secrets,code'
+        continueOnError: true    # Remove once extension is confirmed installed
+
+      - task: PublishBuildArtifacts@1
+        displayName: 'Publish security report'
+        condition: always()
+        inputs:
+          PathtoPublish: /tmp/vuln-report.txt
+          ArtifactName: security-report
+          publishLocation: Container

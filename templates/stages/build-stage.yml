@@ -1,0 +1,37 @@
+# Build Stage
+# Compiles the .NET solution, runs tests, publishes the artifact,
+# and optionally runs a security scan.
+# All tiers use this stage.
+
+parameters:
+  - name: appName
+    type: string
+  - name: dotnetVersion
+    type: string
+    default: '8.0.x'
+  - name: buildConfiguration
+    type: string
+    default: Release
+  - name: artifactName
+    type: string
+    default: drop
+  - name: runSecurityScan
+    type: boolean
+    default: false
+
+stages:
+  - stage: Build
+    displayName: 'Build ${{ parameters.appName }}'
+    jobs:
+      - template: ../jobs/build-dotnet.yml
+        parameters:
+          appName: ${{ parameters.appName }}
+          dotnetVersion: ${{ parameters.dotnetVersion }}
+          buildConfiguration: ${{ parameters.buildConfiguration }}
+          artifactName: ${{ parameters.artifactName }}
+
+      - ${{ if eq(parameters.runSecurityScan, true) }}:
+        - template: ../jobs/security-scan.yml
+          parameters:
+            appName: ${{ parameters.appName }}
+            dotnetVersion: ${{ parameters.dotnetVersion }}

@@ -1,0 +1,35 @@
+# Publish Artifact Steps
+# Publishes the .NET application as a zip and uploads as a pipeline artifact.
+# The artifact is named `drop` by default and downloaded in all deploy stages.
+
+parameters:
+  - name: buildConfiguration
+    type: string
+    default: Release
+  - name: artifactName
+    type: string
+    default: drop
+  - name: publishProject
+    type: string
+    default: 'src/**/*.Api.csproj'
+
+steps:
+  - task: DotNetCoreCLI@2
+    displayName: 'Publish application'
+    inputs:
+      command: publish
+      publishWebProjects: false
+      projects: ${{ parameters.publishProject }}
+      arguments: >-
+        --configuration ${{ parameters.buildConfiguration }}
+        --output $(Build.ArtifactStagingDirectory)
+        --no-build
+      zipAfterPublish: true
+      modifyOutputPath: false
+
+  - task: PublishBuildArtifacts@1
+    displayName: 'Upload artifact: ${{ parameters.artifactName }}'
+    inputs:
+      PathtoPublish: $(Build.ArtifactStagingDirectory)
+      ArtifactName: ${{ parameters.artifactName }}
+      publishLocation: Container

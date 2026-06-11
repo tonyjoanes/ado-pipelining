@@ -1,0 +1,13 @@
+# Download Artifact Steps
+# Downloads the named artifact from the current pipeline run.
+# Available at $(Pipeline.Workspace)/{artifactName}/
+
+parameters:
+  - name: artifactName
+    type: string
+    default: drop
+
+steps:
+  - download: current
+    artifact: ${{ parameters.artifactName }}
+    displayName: 'Download artifact: ${{ parameters.artifactName }}'

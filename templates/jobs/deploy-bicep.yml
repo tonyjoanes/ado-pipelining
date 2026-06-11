@@ -1,0 +1,42 @@
+# Deploy Bicep Job
+# Runs a what-if preview then applies the environment root stack.
+# Uses a deployment job so it targets an ADO Environment (approval gates
+# are configured on that Environment in the ADO UI).
+
+parameters:
+  - name: environment
+    type: string
+  - name: appName
+    type: string
+  - name: azureSubscription
+    type: string
+  - name: bicepEnvironmentPath
+    type: string
+    default: infra/environments
+
+jobs:
+  - deployment: DeployBicep_${{ parameters.environment }}
+    displayName: 'Bicep What-If + Deploy'
+    environment: ${{ parameters.appName }}-${{ parameters.environment }}
+    pool:
+      vmImage: ubuntu-latest
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: self
+
+            - template: ../steps/what-if-bicep.yml
+              parameters:
+                azureSubscription: ${{ parameters.azureSubscription }}
+                bicepFile: ${{ parameters.bicepEnvironmentPath }}/${{ parameters.environment }}/main.bicep
+                resourceGroup: rg-$(appName)-${{ parameters.environment }}
+                appName: $(appName)
+
+            - template: ../steps/deploy-bicep-step.yml
+              parameters:
+                azureSubscription: ${{ parameters.azureSubscription }}
+                bicepFile: ${{ parameters.bicepEnvironmentPath }}/${{ parameters.environment }}/main.bicep
+                resourceGroup: rg-$(appName)-${{ parameters.environment }}
+                appName: $(appName)
+                environment: ${{ parameters.environment }}

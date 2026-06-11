@@ -1,0 +1,34 @@
+# Bicep What-If Steps
+# Runs `az deployment group what-if` to preview infrastructure changes
+# before applying them. Results are printed to the pipeline log.
+# This step is informational — it does not fail the pipeline.
+
+parameters:
+  - name: azureSubscription
+    type: string
+  - name: bicepFile
+    type: string
+  - name: resourceGroup
+    type: string
+  - name: appName
+    type: string
+
+steps:
+  - task: AzureCLI@2
+    displayName: 'Preview infrastructure changes (what-if)'
+    inputs:
+      azureSubscription: ${{ parameters.azureSubscription }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        echo "##[section]Bicep What-If: ${{ parameters.bicepFile }}"
+        echo "Resource group: ${{ parameters.resourceGroup }}"
+
+        az deployment group what-if \
+          --resource-group "${{ parameters.resourceGroup }}" \
+          --template-file "${{ parameters.bicepFile }}" \
+          --parameters appName="${{ parameters.appName }}" buildId="$(Build.BuildId)" \
+          --result-format FullResourcePayloads \
+          --no-pretty-print 2>&1 | head -200
+
+        echo "##[section]What-if complete. Review changes above before approving."

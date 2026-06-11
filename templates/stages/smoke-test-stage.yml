@@ -1,0 +1,28 @@
+# Smoke Test Stage
+# Calls the /health endpoint and optionally additional paths.
+# Retries up to 5 times with 15s backoff to handle warm-up time.
+
+parameters:
+  - name: environment
+    type: string
+  - name: appName
+    type: string
+  - name: dependsOn
+    type: object
+    default: []
+  - name: additionalPaths
+    type: object
+    default: []
+
+stages:
+  - stage: SmokeTest_${{ parameters.environment }}
+    displayName: 'Smoke Tests [${{ upper(parameters.environment) }}]'
+    dependsOn: ${{ parameters.dependsOn }}
+    variables:
+      - template: ../variables/${{ parameters.environment }}.yml
+    jobs:
+      - template: ../jobs/run-smoke-tests.yml
+        parameters:
+          environment: ${{ parameters.environment }}
+          appName: ${{ parameters.appName }}
+          additionalPaths: ${{ parameters.additionalPaths }}

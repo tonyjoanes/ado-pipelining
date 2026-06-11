@@ -1,0 +1,34 @@
+# Restore and Build Steps
+# Installs the .NET SDK, restores NuGet packages, and builds the solution.
+
+parameters:
+  - name: dotnetVersion
+    type: string
+    default: '8.0.x'
+  - name: buildConfiguration
+    type: string
+    default: Release
+  - name: projectPath
+    type: string
+    default: 'src/**/*.sln'
+
+steps:
+  - task: UseDotNet@2
+    displayName: 'Use .NET ${{ parameters.dotnetVersion }}'
+    inputs:
+      version: ${{ parameters.dotnetVersion }}
+      includePreviewVersions: false
+
+  - task: DotNetCoreCLI@2
+    displayName: 'Restore NuGet packages'
+    inputs:
+      command: restore
+      projects: ${{ parameters.projectPath }}
+      feedsToUse: select
+
+  - task: DotNetCoreCLI@2
+    displayName: 'Build solution (${{ parameters.buildConfiguration }})'
+    inputs:
+      command: build
+      projects: ${{ parameters.projectPath }}
+      arguments: '--configuration ${{ parameters.buildConfiguration }} --no-restore'

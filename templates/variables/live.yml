@@ -1,0 +1,42 @@
+# Live Environment Variables
+# Production SKUs. Approval gate configured on ADO Environment: {appName}-live
+# These SKUs must not be downgraded without a change request.
+
+variables:
+  - name: environmentName
+    value: live
+
+  - name: appServiceName
+    value: app-$(appName)-live
+
+  - name: appServicePlanName
+    value: asp-$(appName)-live
+
+  - name: keyVaultName
+    value: kv-$(appName)-live
+
+  - name: sqlServerName
+    value: sql-$(appName)-live
+
+  - name: appInsightsName
+    value: appi-$(appName)-live
+
+  - name: logWorkspaceName
+    value: log-$(appName)-live
+
+  - name: resourceGroup
+    value: rg-$(appName)-live
+
+  # Production-grade SKUs — do not downgrade
+  - name: appServiceSku
+    value: P2v3
+
+  - name: sqlDatabaseSku
+    value: S3
+
+  - name: location
+    value: uksouth
+
+  # Extended retention for compliance
+  - name: logRetentionDays
+    value: 90

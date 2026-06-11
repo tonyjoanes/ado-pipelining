@@ -1,0 +1,41 @@
+# Dev Environment Variables
+# Resource names follow the Azure naming convention:
+#   {resource-abbreviation}-{appName}-{environment}
+# SKUs are low-cost for development workloads.
+
+variables:
+  - name: environmentName
+    value: dev
+
+  - name: appServiceName
+    value: app-$(appName)-dev
+
+  - name: appServicePlanName
+    value: asp-$(appName)-dev
+
+  - name: keyVaultName
+    value: kv-$(appName)-dev
+
+  - name: sqlServerName
+    value: sql-$(appName)-dev
+
+  - name: appInsightsName
+    value: appi-$(appName)-dev
+
+  - name: logWorkspaceName
+    value: log-$(appName)-dev
+
+  - name: resourceGroup
+    value: rg-$(appName)-dev
+
+  - name: appServiceSku
+    value: B1
+
+  - name: sqlDatabaseSku
+    value: Basic
+
+  - name: location
+    value: uksouth
+
+  - name: logRetentionDays
+    value: 30

@@ -1,0 +1,40 @@
+# UAT Environment Variables
+# Production-class SKUs — UAT must be representative of live performance.
+# Approval gate configured on ADO Environment: {appName}-uat
+
+variables:
+  - name: environmentName
+    value: uat
+
+  - name: appServiceName
+    value: app-$(appName)-uat
+
+  - name: appServicePlanName
+    value: asp-$(appName)-uat
+
+  - name: keyVaultName
+    value: kv-$(appName)-uat
+
+  - name: sqlServerName
+    value: sql-$(appName)-uat
+
+  - name: appInsightsName
+    value: appi-$(appName)-uat
+
+  - name: logWorkspaceName
+    value: log-$(appName)-uat
+
+  - name: resourceGroup
+    value: rg-$(appName)-uat
+
+  - name: appServiceSku
+    value: P1v3
+
+  - name: sqlDatabaseSku
+    value: S2
+
+  - name: location
+    value: uksouth
+
+  - name: logRetentionDays
+    value: 30

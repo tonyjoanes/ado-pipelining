@@ -1,0 +1,31 @@
+# Application Deploy Stage
+# Downloads the build artifact and deploys to Azure App Service.
+# Wires up Key Vault references as app settings post-deploy.
+
+parameters:
+  - name: environment
+    type: string
+  - name: appName
+    type: string
+  - name: azureSubscription
+    type: string
+  - name: artifactName
+    type: string
+    default: drop
+  - name: dependsOn
+    type: object
+    default: []
+
+stages:
+  - stage: AppDeploy_${{ parameters.environment }}
+    displayName: 'Deploy Application [${{ upper(parameters.environment) }}]'
+    dependsOn: ${{ parameters.dependsOn }}
+    variables:
+      - template: ../variables/${{ parameters.environment }}.yml
+    jobs:
+      - template: ../jobs/deploy-app-service.yml
+        parameters:
+          environment: ${{ parameters.environment }}
+          appName: ${{ parameters.appName }}
+          azureSubscription: ${{ parameters.azureSubscription }}
+          artifactName: ${{ parameters.artifactName }}
