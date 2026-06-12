@@ -1,6 +1,11 @@
 # Build Stage
 # Compiles the .NET solution, runs tests, publishes the artifact,
-# and optionally runs a security scan.
+# and runs two independent scans in parallel:
+#   - security-scan: NuGet vulnerability audit + SAST (code/secrets)
+#   - psrule-scan:   Well-Architected infrastructure scan (Bicep templates)
+#
+# The two scans are separate jobs so they run concurrently and a failure
+# in one doesn't suppress output from the other.
 # All tiers use this stage.
 
 parameters:
@@ -18,6 +23,12 @@ parameters:
   - name: runSecurityScan
     type: boolean
     default: false
+  - name: runPSRuleScan
+    type: boolean
+    default: true
+  - name: psruleInputPath
+    type: string
+    default: infra/
 
 stages:
   - stage: Build
@@ -35,3 +46,13 @@ stages:
           parameters:
             appName: ${{ parameters.appName }}
             dotnetVersion: ${{ parameters.dotnetVersion }}
+
+      # PSRule scans Bicep templates against Microsoft's Well-Architected rules.
+      # Runs in parallel with the dotnet build — no dependency between them.
+      # failOnUnmatchedRules defaults to false so initial adoption is non-blocking;
+      # set to true once the team has resolved the baseline findings.
+      - ${{ if eq(parameters.runPSRuleScan, true) }}:
+        - template: ../jobs/psrule-scan.yml
+          parameters:
+            inputPath: ${{ parameters.psruleInputPath }}
+            failOnUnmatchedRules: false

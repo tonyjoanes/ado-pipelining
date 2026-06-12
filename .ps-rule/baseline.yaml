@@ -1,0 +1,34 @@
+# PSRule suppression baseline
+# Use this file to suppress rules that genuinely don't apply to your context,
+# with a documented reason. Every suppression is a conscious decision.
+#
+# DO NOT suppress security rules without a documented exception and sign-off.
+# Suppressions here apply to all pipelines using this template library.
+#
+# Format:
+#   - Suppress a rule for a specific resource by resource name
+#   - Suppress a rule for all resources of a type with a wildcard
+#
+# Reference: https://microsoft.github.io/PSRule/v2/concepts/PSRule/en-US/about_PSRule_Suppression/
+
+---
+apiVersion: github.com/microsoft/PSRule/v1
+kind: SuppressionGroup
+metadata:
+  name: SuppressedRules
+spec:
+  suppressionCondition:
+    # Suppress diagnostic settings rules — we use Application Insights
+    # workspace-based telemetry rather than resource-level diagnostic settings
+    rule:
+      - Azure.AppService.AppInsights
+    where:
+      name: '.'   # applies to all resources matching the rule
+
+  # Example of a named suppression with justification:
+  # - rule: Azure.SQL.FirewallIPRange
+  #   justification: >
+  #     AllowAllAzureIps (0.0.0.0) is used for App Service managed identity
+  #     connectivity. VNet integration is on the roadmap (Q3).
+  #   where:
+  #     name: 'AllowAllAzureIps'

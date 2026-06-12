@@ -1,0 +1,100 @@
+# PSRule for Azure — Infrastructure Scan Job
+#
+# Evaluates Bicep templates against 300+ Microsoft-maintained rules aligned
+# to the Azure Well-Architected Framework (Security, Reliability, Cost,
+# Operational Excellence). Runs before any deployment.
+#
+# Installation: no ADO extension or agent pre-configuration needed.
+# pwsh is pre-installed on ubuntu-latest. The PSRule module installs at
+# runtime and is cached between runs.
+#
+# Alternative: if your org has the PSRule ADO extension installed, replace
+# the pwsh Install-Module step with:
+#   - task: ps-rule-install@2
+#     inputs:
+#       module: PSRule.Rules.Azure
+# and the analysis step with:
+#   - task: ps-rule-assert@2
+#     inputs:
+#       modules: PSRule.Rules.Azure
+#       inputPath: infra/
+# The extension gives richer SARIF integration with the ADO security tab.
+
+parameters:
+  - name: inputPath
+    type: string
+    default: infra/
+  - name: outputPath
+    type: string
+    default: $(Agent.TempDirectory)/psrule-results.sarif
+  - name: failOnUnmatchedRules
+    type: boolean
+    default: false   # true once team has resolved initial findings
+
+jobs:
+  - job: PSRuleScan
+    displayName: 'PSRule for Azure (Well-Architected scan)'
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - checkout: self
+
+      - task: Cache@2
+        displayName: 'Cache PSRule module'
+        inputs:
+          key: '"PSRule.Rules.Azure" | "1.34.0"'
+          path: ~/.local/share/powershell/Modules
+          cacheHitVar: PSRULE_CACHED
+
+      - pwsh: |
+          if ($env:PSRULE_CACHED -ne 'true') {
+            Write-Host "##[section]Installing PSRule.Rules.Azure module"
+            Install-Module PSRule.Rules.Azure `
+              -Scope CurrentUser `
+              -Force `
+              -AllowClobber `
+              -RequiredVersion 1.34.0
+          } else {
+            Write-Host "##[section]PSRule module restored from cache"
+          }
+          Get-Module PSRule.Rules.Azure -ListAvailable | Select-Object Name, Version
+        displayName: 'Install PSRule.Rules.Azure'
+
+      - pwsh: |
+          Write-Host "##[section]Running PSRule for Azure against ${{ parameters.inputPath }}"
+
+          $options = @{
+            Module      = 'PSRule.Rules.Azure'
+            InputPath   = '${{ parameters.inputPath }}'
+            Option      = 'ps-rule.yaml'
+            OutputPath  = '${{ parameters.outputPath }}'
+            OutputFormat = 'Sarif'
+          }
+
+          $results = Invoke-PSRule @options -ErrorAction Stop
+
+          # Surface a summary by WAF pillar
+          $summary = $results | Group-Object -Property { $_.Info.Tags['pillar'] } |
+            Select-Object Name, Count |
+            Sort-Object Name
+          Write-Host "`n##[section]Findings by WAF pillar:"
+          $summary | Format-Table -AutoSize | Out-String | Write-Host
+
+          $failures = $results | Where-Object { $_.Outcome -eq 'Fail' }
+          Write-Host "`n##[section]$($failures.Count) rule(s) failed, $($results.Count) total evaluated"
+
+          if (${{ parameters.failOnUnmatchedRules }} -and $failures.Count -gt 0) {
+            Write-Host "##[error]PSRule found $($failures.Count) failure(s). Review results above."
+            exit 1
+          } elseif ($failures.Count -gt 0) {
+            Write-Host "##[warning]PSRule found $($failures.Count) failure(s). Set failOnUnmatchedRules: true to enforce."
+          }
+        displayName: 'Run PSRule for Azure'
+
+      - task: PublishBuildArtifacts@1
+        displayName: 'Publish PSRule SARIF report'
+        condition: always()
+        inputs:
+          PathtoPublish: ${{ parameters.outputPath }}
+          ArtifactName: psrule-results
+          publishLocation: Container

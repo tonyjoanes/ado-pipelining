@@ -1,0 +1,23 @@
+# PSRule for Azure configuration
+# https://azure.github.io/PSRule.Rules.Azure/
+
+requires:
+  PSRule.Rules.Azure: '>=1.34.0'
+
+configuration:
+  # Expand Bicep files before analysis so rules evaluate the full
+  # resource graph, not just the root stack
+  AZURE_BICEP_FILE_EXPANSION: true
+  AZURE_BICEP_CHECK_TOOL: true
+  AZURE_BICEP_FILE_EXPANSION_TIMEOUT: 30
+
+  # Minimum TLS version accepted across all resource types
+  AZURE_MIN_TLS_VERSION: '1.2'
+
+include:
+  module:
+    - PSRule.Rules.Azure
+
+output:
+  # SARIF output integrates with ADO security tab
+  style: Sarif
