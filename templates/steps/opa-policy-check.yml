@@ -1,34 +1,55 @@
 # OPA Policy Check Steps
-# Installs Conftest, compiles Bicep to ARM JSON, then evaluates
-# all .rego policies in the policy directory.
-# Used in the ComplianceValidation stage of compliance-base.yml.
+#
+# Two-phase check:
+#   1. opa test  — runs unit tests against the policies themselves.
+#      Fails fast if a policy has a bug before it evaluates real infra.
+#   2. conftest  — compiles Bicep to ARM JSON and evaluates all policies.
+#      Environment is passed as data so production-specific rules apply.
+#
+# Conftest --data flag injects {"metadata":{"environment":"live"}} so
+# policies can distinguish production from non-production rules.
 
 parameters:
   - name: azureSubscription
     type: string
-    default: 'sc-nonprod'
+    default: sc-nonprod
   - name: policyDir
     type: string
     default: templates/guardrails/policies
   - name: bicepFile
     type: string
     default: infra/environments/dev/main.bicep
+  - name: environment
+    type: string
+    default: dev
 
 steps:
   - checkout: self
 
-  - task: AzureCLI@2
-    displayName: 'Install Conftest'
-    inputs:
-      azureSubscription: ${{ parameters.azureSubscription }}
-      scriptType: bash
-      scriptLocation: inlineScript
-      inlineScript: |
-        CONFTEST_VERSION="0.55.0"
-        curl -sL \
-          "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
-          | tar -xz -C /usr/local/bin conftest
-        conftest --version
+  - script: |
+      CONFTEST_VERSION="0.55.0"
+      OPA_VERSION="0.68.0"
+
+      echo "##[section]Installing OPA and Conftest"
+
+      curl -sL \
+        "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+        | tar -xz -C /usr/local/bin conftest
+
+      curl -sL \
+        "https://openpolicyagent.org/downloads/v${OPA_VERSION}/opa_linux_amd64_static" \
+        -o /usr/local/bin/opa && chmod +x /usr/local/bin/opa
+
+      conftest --version
+      opa version
+    displayName: 'Install OPA and Conftest'
+
+  # Run unit tests against the policies first — if a policy has a bug,
+  # fail here with a clear message before evaluating real infrastructure.
+  - script: |
+      echo "##[section]Running policy unit tests"
+      opa test "${{ parameters.policyDir }}" --verbose
+    displayName: 'Run policy unit tests (opa test)'
 
   - task: AzureCLI@2
     displayName: 'Compile Bicep to ARM JSON'
@@ -41,12 +62,14 @@ steps:
         az bicep build \
           --file "${{ parameters.bicepFile }}" \
           --outfile /tmp/compiled-arm.json
-        echo "Bicep compiled to /tmp/compiled-arm.json"
+        echo "Compiled ${{ parameters.bicepFile }} → /tmp/compiled-arm.json"
 
   - script: |
-      echo "##[section]Running OPA compliance policies"
+      echo "##[section]Evaluating policies against ${{ parameters.environment }} infrastructure"
+
       conftest test /tmp/compiled-arm.json \
         --policy "${{ parameters.policyDir }}" \
+        --data '{"metadata":{"environment":"${{ parameters.environment }}"}}' \
         --output table \
         --all-namespaces
-    displayName: 'Run OPA compliance policies'
+    displayName: 'Evaluate compliance policies (conftest)'

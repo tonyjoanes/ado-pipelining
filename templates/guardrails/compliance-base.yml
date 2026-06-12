@@ -107,6 +107,7 @@ stages:
             parameters:
               policyDir: templates/guardrails/policies
               bicepFile: ${{ parameters.bicepEnvironmentPath }}/${{ parameters.lastEnvironment }}/main.bicep
+              environment: ${{ parameters.lastEnvironment }}
 
   # ── OPTIONAL: Team-injected stages after compliance validation ────────────
   - ${{ each stage in parameters.postDeployStages }}:
