@@ -1,46 +1,73 @@
 # ============================================================
 # COMPLIANCE BASE TEMPLATE  (Tier 3 `extends` target)
 # ============================================================
-# This template is evaluated at pipeline compile time by ADO.
-# Mandatory stages CANNOT be removed by teams extending this template.
-# Teams inject custom work ONLY through the typed insertion points below.
+# Evaluated at pipeline compile time by ADO. Mandatory stages
+# cannot be removed by teams extending this template.
+#
+# Teams inject custom work through typed insertion points only:
+#   preDeployStages  — after Build, before environment deploys
+#   postDeployStages — after ComplianceValidation
+#
+# To add/change environments for the whole platform, update
+# deploy-all-environments.yml (Tier 1/2) AND the environments
+# default here (Tier 3). Both are platform-owned files.
 #
 # ADO Project Setting required:
 #   Settings → Pipelines → Required template →
 #     path: templates/guardrails/compliance-base.yml
 #     branch: main
-#
-# This ensures no team can point at a modified fork of this file.
 # ============================================================
 
 parameters:
   - name: appName
     type: string
 
-  - name: azureSubscription
-    type: string
-    default: sc-nonprod
-
   - name: dotnetVersion
     type: string
     default: '8.0.x'
 
-  # Typed insertion point: stages that run after Build, before environment deploys
-  # These may depend on Build or on AppDeploy_{env} stages
+  - name: bicepEnvironmentPath
+    type: string
+    default: infra/environments
+
+  # Teams may override to add a canary or skip an environment.
+  # Any change is visible in their pipeline file and subject to PR review.
+  # Must match templates/stages/deploy-all-environments.yml defaults
+  # when using the standard platform environment set.
+  - name: environments
+    type: object
+    default:
+      - name: dev
+        azureSubscription: sc-nonprod
+        previousEnv: ''
+      - name: test
+        azureSubscription: sc-nonprod
+        previousEnv: dev
+      - name: uat
+        azureSubscription: sc-nonprod
+        previousEnv: test
+      - name: staging
+        azureSubscription: sc-prod
+        previousEnv: uat
+      - name: live
+        azureSubscription: sc-prod
+        previousEnv: staging
+
+  # Must be the name of the last entry in environments.
+  # ComplianceValidation depends on SmokeTest_{lastEnvironment}.
+  # Update this if you override environments with a different last env.
+  - name: lastEnvironment
+    type: string
+    default: live
+
+  # Typed insertion points — teams inject stages here, nowhere else
   - name: preDeployStages
     type: stageList
     default: []
 
-  # Typed insertion point: stages that run after all environment smoke tests
   - name: postDeployStages
     type: stageList
     default: []
-
-  # Teams may supply a custom Bicep path but it MUST remain under infra/environments
-  # (enforced at runtime by require-approved-modules.rego)
-  - name: bicepEnvironmentPath
-    type: string
-    default: infra/environments
 
 stages:
 
@@ -53,126 +80,23 @@ stages:
       artifactName: drop
       runSecurityScan: true
 
-  # ── OPTIONAL: Team-injected pre-deploy stages ─────────────────────────────
+  # ── OPTIONAL: Team-injected stages before environment deployments ──────────
   - ${{ each stage in parameters.preDeployStages }}:
     - ${{ stage }}
 
-  # ── MANDATORY: Dev and Test (no approval required) ────────────────────────
-  - template: ../stages/infra-deploy-stage.yml
+  # ── MANDATORY: All environments in sequence ────────────────────────────────
+  - template: ../stages/deploy-all-environments.yml
     parameters:
-      environment: dev
       appName: ${{ parameters.appName }}
-      azureSubscription: ${{ parameters.azureSubscription }}
-      bicepEnvironmentPath: ${{ parameters.bicepEnvironmentPath }}
-      dependsOn: [Build]
-
-  - template: ../stages/app-deploy-stage.yml
-    parameters:
-      environment: dev
-      appName: ${{ parameters.appName }}
-      azureSubscription: ${{ parameters.azureSubscription }}
       artifactName: drop
-      dependsOn: [InfraDeploy_dev]
-
-  - template: ../stages/smoke-test-stage.yml
-    parameters:
-      environment: dev
-      appName: ${{ parameters.appName }}
-      dependsOn: [AppDeploy_dev]
-
-  - template: ../stages/infra-deploy-stage.yml
-    parameters:
-      environment: test
-      appName: ${{ parameters.appName }}
-      azureSubscription: ${{ parameters.azureSubscription }}
       bicepEnvironmentPath: ${{ parameters.bicepEnvironmentPath }}
-      dependsOn: [SmokeTest_dev]
+      environments: ${{ parameters.environments }}
 
-  - template: ../stages/app-deploy-stage.yml
-    parameters:
-      environment: test
-      appName: ${{ parameters.appName }}
-      azureSubscription: ${{ parameters.azureSubscription }}
-      artifactName: drop
-      dependsOn: [InfraDeploy_test]
-
-  - template: ../stages/smoke-test-stage.yml
-    parameters:
-      environment: test
-      appName: ${{ parameters.appName }}
-      dependsOn: [AppDeploy_test]
-
-  # ── MANDATORY: UAT, Staging, Live (approval gate on ADO Environment) ──────
-  - template: ../stages/infra-deploy-stage.yml
-    parameters:
-      environment: uat
-      appName: ${{ parameters.appName }}
-      azureSubscription: ${{ parameters.azureSubscription }}
-      bicepEnvironmentPath: ${{ parameters.bicepEnvironmentPath }}
-      dependsOn: [SmokeTest_test]
-
-  - template: ../stages/app-deploy-stage.yml
-    parameters:
-      environment: uat
-      appName: ${{ parameters.appName }}
-      azureSubscription: ${{ parameters.azureSubscription }}
-      artifactName: drop
-      dependsOn: [InfraDeploy_uat]
-
-  - template: ../stages/smoke-test-stage.yml
-    parameters:
-      environment: uat
-      appName: ${{ parameters.appName }}
-      dependsOn: [AppDeploy_uat]
-
-  - template: ../stages/infra-deploy-stage.yml
-    parameters:
-      environment: staging
-      appName: ${{ parameters.appName }}
-      azureSubscription: ${{ parameters.azureSubscription }}
-      bicepEnvironmentPath: ${{ parameters.bicepEnvironmentPath }}
-      dependsOn: [SmokeTest_uat]
-
-  - template: ../stages/app-deploy-stage.yml
-    parameters:
-      environment: staging
-      appName: ${{ parameters.appName }}
-      azureSubscription: ${{ parameters.azureSubscription }}
-      artifactName: drop
-      dependsOn: [InfraDeploy_staging]
-
-  - template: ../stages/smoke-test-stage.yml
-    parameters:
-      environment: staging
-      appName: ${{ parameters.appName }}
-      dependsOn: [AppDeploy_staging]
-
-  - template: ../stages/infra-deploy-stage.yml
-    parameters:
-      environment: live
-      appName: ${{ parameters.appName }}
-      azureSubscription: sc-prod
-      bicepEnvironmentPath: ${{ parameters.bicepEnvironmentPath }}
-      dependsOn: [SmokeTest_staging]
-
-  - template: ../stages/app-deploy-stage.yml
-    parameters:
-      environment: live
-      appName: ${{ parameters.appName }}
-      azureSubscription: sc-prod
-      artifactName: drop
-      dependsOn: [InfraDeploy_live]
-
-  - template: ../stages/smoke-test-stage.yml
-    parameters:
-      environment: live
-      appName: ${{ parameters.appName }}
-      dependsOn: [AppDeploy_live]
-
-  # ── MANDATORY: OPA compliance validation (must pass before pipeline ends) ──
+  # ── MANDATORY: OPA compliance validation (cannot be skipped) ──────────────
   - stage: ComplianceValidation
     displayName: 'Compliance Validation (OPA)'
-    dependsOn: [SmokeTest_live]
+    dependsOn:
+      - SmokeTest_${{ parameters.lastEnvironment }}
     jobs:
       - job: OpaValidation
         displayName: 'OPA policy checks'
@@ -181,10 +105,9 @@ stages:
         steps:
           - template: ../steps/opa-policy-check.yml
             parameters:
-              azureSubscription: ${{ parameters.azureSubscription }}
               policyDir: templates/guardrails/policies
-              bicepFile: ${{ parameters.bicepEnvironmentPath }}/live/main.bicep
+              bicepFile: ${{ parameters.bicepEnvironmentPath }}/${{ parameters.lastEnvironment }}/main.bicep
 
-  # ── OPTIONAL: Team-injected post-deploy stages ────────────────────────────
+  # ── OPTIONAL: Team-injected stages after compliance validation ────────────
   - ${{ each stage in parameters.postDeployStages }}:
     - ${{ stage }}

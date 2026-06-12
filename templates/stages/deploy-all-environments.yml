@@ -1,0 +1,100 @@
+# Deploy All Environments Stage Template
+#
+# Generates three stages per environment (InfraDeploy, AppDeploy, SmokeTest)
+# in the correct sequential order from a single environment list.
+#
+# Each environment object requires:
+#   name            - environment name, matches templates/variables/{name}.yml
+#                     and infra/environments/{name}/main.bicep
+#   azureSubscription - ADO service connection for this environment
+#   previousEnv     - name of the environment that must pass before this one
+#                     starts. Empty string for the first environment (depends on Build).
+#
+# To add a new environment, add one entry to the list, set previousEnv to the
+# environment before it, and update the entry after it to point at the new one.
+# Also create templates/variables/{name}.yml and infra/environments/{name}/main.bicep.
+#
+# To change a service connection, update azureSubscription in the relevant entry.
+# One place, one change.
+
+parameters:
+  - name: appName
+    type: string
+
+  - name: artifactName
+    type: string
+    default: drop
+
+  - name: bicepEnvironmentPath
+    type: string
+    default: infra/environments
+
+  - name: environments
+    type: object
+    default:
+      - name: dev
+        azureSubscription: sc-nonprod
+        previousEnv: ''        # First env — depends on Build
+      - name: test
+        azureSubscription: sc-nonprod
+        previousEnv: dev
+      - name: uat
+        azureSubscription: sc-nonprod
+        previousEnv: test
+      - name: staging
+        azureSubscription: sc-prod
+        previousEnv: uat
+      - name: live
+        azureSubscription: sc-prod
+        previousEnv: staging
+
+stages:
+  - ${{ each env in parameters.environments }}:
+
+    # ── Infrastructure deploy ──────────────────────────────────────────────
+    # First env depends on Build. Every subsequent env depends on the
+    # previous env's smoke test, enforcing the promotion chain.
+    - stage: InfraDeploy_${{ env.name }}
+      displayName: 'Deploy Infrastructure [${{ upper(env.name) }}]'
+      ${{ if eq(env.previousEnv, '') }}:
+        dependsOn: [Build]
+      ${{ else }}:
+        dependsOn:
+          - SmokeTest_${{ env.previousEnv }}
+      variables:
+        - template: ../variables/${{ env.name }}.yml
+      jobs:
+        - template: ../jobs/deploy-bicep.yml
+          parameters:
+            environment: ${{ env.name }}
+            appName: ${{ parameters.appName }}
+            azureSubscription: ${{ env.azureSubscription }}
+            bicepEnvironmentPath: ${{ parameters.bicepEnvironmentPath }}
+
+    # ── Application deploy ─────────────────────────────────────────────────
+    - stage: AppDeploy_${{ env.name }}
+      displayName: 'Deploy Application [${{ upper(env.name) }}]'
+      dependsOn:
+        - InfraDeploy_${{ env.name }}
+      variables:
+        - template: ../variables/${{ env.name }}.yml
+      jobs:
+        - template: ../jobs/deploy-app-service.yml
+          parameters:
+            environment: ${{ env.name }}
+            appName: ${{ parameters.appName }}
+            azureSubscription: ${{ env.azureSubscription }}
+            artifactName: ${{ parameters.artifactName }}
+
+    # ── Smoke tests ────────────────────────────────────────────────────────
+    - stage: SmokeTest_${{ env.name }}
+      displayName: 'Smoke Tests [${{ upper(env.name) }}]'
+      dependsOn:
+        - AppDeploy_${{ env.name }}
+      variables:
+        - template: ../variables/${{ env.name }}.yml
+      jobs:
+        - template: ../jobs/run-smoke-tests.yml
+          parameters:
+            environment: ${{ env.name }}
+            appName: ${{ parameters.appName }}
